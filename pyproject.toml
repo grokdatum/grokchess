@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "grokchess"
+version = "0.1.0"
+description = "A friendly arena where home-grown chess engines play each other and their human authors."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Eric Waguespack" }]
+dependencies = [
+    "chess>=1.10",
+]
+
+[project.optional-dependencies]
+# The web board needs a couple more packages; the core arena does not.
+web = ["fastapi>=0.110", "uvicorn>=0.29"]
+dev = ["pytest>=8.0", "fastapi>=0.110", "uvicorn>=0.29", "httpx>=0.27"]
+
+[project.scripts]
+grokchess-tournament = "grokchess.tournament:main"
+
+[tool.setuptools.packages.find]
+include = ["grokchess*"]

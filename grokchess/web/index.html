@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>grokchess</title>
+<style>
+  :root {
+    --light: #ebecd0;
+    --dark: #6f9b57;
+    --sel: #f6f669;
+    --target: rgba(20, 85, 30, 0.45);
+    --last: rgba(246, 246, 105, 0.5);
+    --check: #e56b6f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    margin: 0; padding: 1.5rem;
+    background: #262421; color: #e8e6e3;
+    display: flex; flex-direction: column; align-items: center; gap: 1rem;
+  }
+  h1 { margin: 0; font-size: 1.4rem; letter-spacing: 0.02em; }
+  .controls { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center; justify-content: center; }
+  select, button { font-size: 1rem; padding: 0.4rem 0.6rem; border-radius: 6px; border: 1px solid #555; background: #3a3835; color: #e8e6e3; }
+  button { cursor: pointer; background: #6f9b57; border-color: #6f9b57; color: #fff; font-weight: 600; }
+  button:hover { filter: brightness(1.08); }
+  label { display: inline-flex; align-items: center; gap: 0.3rem; }
+  #status { min-height: 1.4rem; font-size: 1.05rem; text-align: center; }
+  #board {
+    display: grid; grid-template-columns: repeat(8, 1fr);
+    width: min(88vw, 560px); aspect-ratio: 1 / 1;
+    border: 3px solid #3a3835; border-radius: 4px; overflow: hidden;
+    user-select: none;
+  }
+  .sq {
+    position: relative; display: flex; align-items: center; justify-content: center;
+    font-size: min(11vw, 3.4rem); line-height: 1; cursor: pointer;
+  }
+  .sq.light { background: var(--light); }
+  .sq.dark { background: var(--dark); }
+  .sq .piece { position: relative; z-index: 2; }
+  .sq.white-piece .piece { color: #fff; text-shadow: 0 0 2px #000, 0 1px 2px #0008; }
+  .sq.black-piece .piece { color: #202020; text-shadow: 0 0 1px #fff6; }
+  .sq.sel::after { content: ""; position: absolute; inset: 0; background: var(--sel); opacity: 0.55; z-index: 1; }
+  .sq.last::after { content: ""; position: absolute; inset: 0; background: var(--last); z-index: 0; }
+  .sq.target::before {
+    content: ""; position: absolute; width: 32%; height: 32%; border-radius: 50%;
+    background: var(--target); z-index: 1;
+  }
+  .sq.target.occupied::before {
+    width: 100%; height: 100%; border-radius: 0; background: none;
+    box-shadow: inset 0 0 0 6px var(--target);
+  }
+  .sq.incheck { background: var(--check) !important; }
+  .coords { font-size: 0.8rem; color: #9a9894; }
+  footer { font-size: 0.8rem; color: #9a9894; max-width: 560px; text-align: center; }
+</style>
+</head>
+<body>
+  <h1>♞ grokchess</h1>
+  <div class="controls">
+    <label>Engine
+      <select id="engine"></select>
+    </label>
+    <label>You play
+      <select id="color">
+        <option value="white">White</option>
+        <option value="black">Black</option>
+      </select>
+    </label>
+    <button id="new">New game</button>
+  </div>
+  <div id="status">Pick an engine and start a game.</div>
+  <div id="board"></div>
+  <div class="coords" id="turnline"></div>
+  <footer>Click one of your pieces, then a highlighted square. Pawn promotions auto-queen for now.</footer>
+
+<script>
+const FILES = ["a","b","c","d","e","f","g","h"];
+const GLYPH = {
+  K:"♔", Q:"♕", R:"♖", B:"♗", N:"♘", P:"♙",
+  k:"♚", q:"♛", r:"♜", b:"♝", n:"♞", p:"♟"
+};
+
+let state = null;      // last state from the server
+let selected = null;   // currently selected square (e.g. "e2")
+
+const boardEl = document.getElementById("board");
+const statusEl = document.getElementById("status");
+const turnEl = document.getElementById("turnline");
+
+function parseFen(fen) {
+  const rows = fen.split(" ")[0].split("/");   // rank 8 first
+  const pieces = {};
+  for (let r = 0; r < 8; r++) {
+    let file = 0;
+    for (const ch of rows[r]) {
+      if (/\d/.test(ch)) { file += parseInt(ch, 10); }
+      else { pieces[FILES[file] + (8 - r)] = ch; file++; }
+    }
+  }
+  return pieces;
+}
+
+function orderedSquares(orientation) {
+  const files = FILES.slice();
+  const ranks = [8, 7, 6, 5, 4, 3, 2, 1];
+  if (orientation === "black") { files.reverse(); ranks.reverse(); }
+  const out = [];
+  for (const r of ranks) for (const f of files) out.push(f + r);
+  return out;
+}
+
+function targetsFrom(sq) {
+  if (!state) return [];
+  return state.legal_moves.filter(m => m.from === sq).map(m => m.to);
+}
+
+function myTurn() {
+  return state && state.status === "playing" && state.turn === state.human_color;
+}
+
+function render() {
+  const pieces = parseFen(state.fen);
+  const orientation = state.human_color;
+  const squares = orderedSquares(orientation);
+  const targets = selected ? targetsFrom(selected) : [];
+  const last = state.last_move ? [state.last_move.slice(0,2), state.last_move.slice(2,4)] : [];
+  const kingInCheck = state.check ? findKing(pieces, state.turn) : null;
+
+  boardEl.innerHTML = "";
+  for (const sq of squares) {
+    const file = FILES.indexOf(sq[0]);
+    const rank = parseInt(sq[1], 10);
+    const dark = (file + rank) % 2 === 1;
+    const cell = document.createElement("div");
+    cell.className = "sq " + (dark ? "dark" : "light");
+    cell.dataset.square = sq;
+    const piece = pieces[sq];
+    if (piece) {
+      const isWhite = piece === piece.toUpperCase();
+      cell.classList.add(isWhite ? "white-piece" : "black-piece");
+      const span = document.createElement("span");
+      span.className = "piece";
+      span.textContent = GLYPH[piece];
+      cell.appendChild(span);
+    }
+    if (sq === selected) cell.classList.add("sel");
+    if (targets.includes(sq)) {
+      cell.classList.add("target");
+      if (piece) cell.classList.add("occupied");
+    }
+    if (last.includes(sq)) cell.classList.add("last");
+    if (sq === kingInCheck) cell.classList.add("incheck");
+    cell.addEventListener("click", () => onSquare(sq));
+    boardEl.appendChild(cell);
+  }
+  renderStatus();
+}
+
+function findKing(pieces, turn) {
+  const target = turn === "white" ? "K" : "k";
+  for (const sq in pieces) if (pieces[sq] === target) return sq;
+  return null;
+}
+
+function renderStatus() {
+  const engine = state.engine;
+  if (state.status === "playing") {
+    const who = state.turn === state.human_color ? "Your move" : engine + " is thinking…";
+    statusEl.textContent = who;
+    turnEl.textContent = `You: ${state.human_color} • Engine: ${engine} • move ${state.move_number}`;
+  } else {
+    const outcome = {
+      white_wins: "White wins", black_wins: "Black wins", draw: "Draw"
+    }[state.status] || state.status;
+    const youWon =
+      (state.status === "white_wins" && state.human_color === "white") ||
+      (state.status === "black_wins" && state.human_color === "black");
+    const tag = state.status === "draw" ? "" : (youWon ? " — you win! 🎉" : " — engine wins");
+    let reason = state.reason ? ` (${state.reason.replace(/_/g, " ")})` : "";
+    if (state.detail) reason += ` — ${state.detail}`;
+    statusEl.textContent = `${outcome}${tag}${reason}`;
+    turnEl.textContent = "";
+  }
+}
+
+function onSquare(sq) {
+  if (!state) return;
+  if (!myTurn()) return;
+  const pieces = parseFen(state.fen);
+  const piece = pieces[sq];
+  const isMine = piece &&
+    ((state.human_color === "white") === (piece === piece.toUpperCase()));
+
+  if (selected === null) {
+    if (isMine && targetsFrom(sq).length) { selected = sq; render(); }
+    return;
+  }
+  if (targetsFrom(selected).includes(sq)) {
+    sendMove(selected, sq);
+    selected = null;
+    return;
+  }
+  // reselect another of your pieces, else clear
+  selected = (isMine && targetsFrom(sq).length) ? sq : null;
+  render();
+}
+
+async function api(path, body) {
+  const res = await fetch(path, {
+    method: body ? "POST" : "GET",
+    headers: body ? { "Content-Type": "application/json" } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || res.statusText);
+  }
+  return res.json();
+}
+
+async function sendMove(from, to) {
+  try {
+    // Auto-queen: if this from->to is a promotion, ask for a queen.
+    const promo = state.legal_moves.some(m => m.from === from && m.to === to && m.promotion) ? "q" : null;
+    state = await api("/api/move", { game_id: state.game_id, from, to, promotion: promo });
+    render();
+  } catch (e) {
+    statusEl.textContent = "⚠ " + e.message;
+  }
+}
+
+async function newGame() {
+  try {
+    const engine = document.getElementById("engine").value;
+    const human_color = document.getElementById("color").value;
+    selected = null;
+    state = await api("/api/new", { engine, human_color });
+    render();
+  } catch (e) {
+    statusEl.textContent = "⚠ " + e.message;
+  }
+}
+
+async function loadEngines() {
+  const list = await api("/api/engines");
+  const sel = document.getElementById("engine");
+  sel.innerHTML = "";
+  for (const e of list) {
+    const opt = document.createElement("option");
+    opt.value = e.name;
+    opt.textContent = `${e.name} (${e.league}) — ${e.author}`;
+    sel.appendChild(opt);
+  }
+  if (!list.length) statusEl.textContent = "No engines found. Add one under engines/ and restart.";
+}
+
+document.getElementById("new").addEventListener("click", newGame);
+loadEngines();
+</script>
+</body>
+</html>
