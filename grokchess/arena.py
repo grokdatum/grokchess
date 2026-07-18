@@ -20,7 +20,7 @@ engine-vs-engine tournament and a human-vs-engine web game.
 
 from __future__ import annotations
 
-import signal
+import sys
 import threading
 import time
 from dataclasses import dataclass, field
@@ -31,6 +31,10 @@ import chess.pgn
 DEFAULT_TIME_LIMIT = 1.0   # seconds a player gets to choose one move
 DEFAULT_MAX_PLIES = 400    # hard cap on game length (a ply = one side's move)
 
+# Scheduling slack added to the deadline so an engine that finishes right at
+# the buzzer isn't forfeited over thread-wakeup jitter.
+TIME_LIMIT_SLACK = 0.1
+
 
 class MoveTimeout(Exception):
     """Raised when a player exceeds its per-move time budget."""
@@ -39,34 +43,43 @@ class MoveTimeout(Exception):
 def call_with_time_limit(fn, seconds):
     """Call ``fn()`` under a wall-clock limit, returning ``(result, elapsed)``.
 
-    On Unix, when we're on the main thread, we use ``SIGALRM`` so a genuinely
-    stuck engine is actually interrupted (not just scored as late). Otherwise we
-    fall back to measuring elapsed time and raising :class:`MoveTimeout` after
-    the fact — cooperative, but it can't cut off an infinite loop.
+    ``fn`` runs in a watcher (daemon) thread while we wait up to
+    ``seconds + TIME_LIMIT_SLACK``. If it hasn't finished by then, we raise
+    :class:`MoveTimeout` *here in the referee* — the engine never sees the
+    timeout, so it can't accidentally (or deliberately) catch and swallow it.
+    This also works identically on any thread, so the tournament CLI and the
+    web server enforce the same limit.
+
+    Caveat: Python can't kill a thread, so a truly stuck engine's thread is
+    *abandoned* — it keeps running (as a daemon, dying with the process) and
+    can slow everything else down. We warn on stderr when that happens; the
+    real fix is fixing the engine.
     """
-    use_alarm = hasattr(signal, "SIGALRM") and (
-        threading.current_thread() is threading.main_thread()
-    )
-    if use_alarm:
-        def _handler(signum, frame):  # noqa: ANN001 - signal handler signature
-            raise MoveTimeout(f"exceeded {seconds:.3f}s")
+    outcome: dict = {}
 
-        old_handler = signal.signal(signal.SIGALRM, _handler)
-        signal.setitimer(signal.ITIMER_REAL, seconds)
-        start = time.perf_counter()
+    def _runner() -> None:
         try:
-            result = fn()
-        finally:
-            signal.setitimer(signal.ITIMER_REAL, 0)
-            signal.signal(signal.SIGALRM, old_handler)
-        return result, time.perf_counter() - start
+            outcome["value"] = fn()
+        except BaseException as exc:  # noqa: BLE001 - re-raised in the caller
+            outcome["error"] = exc
 
+    worker = threading.Thread(target=_runner, name="grokchess-engine-move", daemon=True)
     start = time.perf_counter()
-    result = fn()
+    worker.start()
+    worker.join(seconds + TIME_LIMIT_SLACK)
     elapsed = time.perf_counter() - start
-    if elapsed > seconds:
-        raise MoveTimeout(f"exceeded {seconds:.3f}s (soft limit)")
-    return result, elapsed
+
+    if worker.is_alive():
+        print(
+            "grokchess: warning: engine still running after "
+            f"{seconds:.3f}s limit — abandoning its thread; a stuck engine "
+            "can slow later games until the process exits",
+            file=sys.stderr,
+        )
+        raise MoveTimeout(f"exceeded {seconds:.3f}s")
+    if "error" in outcome:
+        raise outcome["error"]
+    return outcome["value"], elapsed
 
 
 @dataclass
