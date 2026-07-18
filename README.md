@@ -46,6 +46,9 @@ python -m grokchess.web          # then open http://127.0.0.1:8000
 
 ## Write your own engine
 
+New to pull requests? [`CONTRIBUTING.md`](CONTRIBUTING.md) walks through the
+whole flow step by step.
+
 ```bash
 cp -r engines/_template engines/<your-name>
 $EDITOR engines/<your-name>/engine.py
@@ -98,6 +101,7 @@ tournament so a broken engine can't merge.
 
 - Swap the plain board for [chessground](https://github.com/lichess-org/chessground) (lichess's board) for drag-and-drop polish.
 - A UCI bridge so engines can be written in any language and play against Stockfish as a benchmark.
+- Per-engine process isolation (each engine in its own sandboxed process) — pairs naturally with the UCI bridge; see the accepted-risk note in RULES.md §6.
 - GitHub Action that runs the tournament on every merge and publishes a leaderboard.
 
 ## License
