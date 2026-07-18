@@ -46,7 +46,12 @@ The point is to write *your own* engine, so at least to start:
 - Import **only the Python standard library and `chess`**.
 - No `requests`, `numpy`, `torch`, `stockfish`, … (this keeps engines simple and
   the "no borrowed brains" rule enforceable).
-- CI runs `tools/check_imports.py` on every pull request and blocks anything else.
+- CI runs `tools/check_imports.py` on every pull request. It also blocks the
+  stdlib escape hatches (`subprocess`, `socket`, `ctypes`, `importlib`, `os`, …)
+  that would let an engine shell out to Stockfish or reach the network.
+- **Honesty note:** the checker is a tripwire, not a fortress — a determined
+  cheater can get around static analysis. PR review by the group is the real
+  enforcement; the checker just catches accidents and the obvious routes.
 
 ## 6. Fair play
 
@@ -54,6 +59,10 @@ The point is to write *your own* engine, so at least to start:
   not sabotage during one.
 - Don't try to break the referee, crash other engines, or exploit the arena. If
   you find a hole, report it (that's a great PR).
+- **Known accepted risk:** all engines run in one Python process, so a hostile
+  engine *could* tamper with shared code at runtime. We accept this because we
+  read each other's PRs; per-engine process isolation is on the roadmap
+  (alongside the UCI bridge) if we ever need it.
 
 ## 7. Changing the rules
 

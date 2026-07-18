@@ -2,7 +2,9 @@
 """check-imports: verify engine files import only stdlib + chess + grokchess.
 
 This is the "no borrowed brains" gate. An engine that imports ``requests``,
-``torch``, ``stockfish``, etc. is rejected. Relative imports (within your own
+``torch``, ``stockfish``, etc. is rejected, as are the stdlib escape hatches
+(``subprocess``, ``socket``, ``ctypes``, ...) that would let an engine run
+external programs or reach the network. Relative imports (within your own
 engine folder) are always fine.
 
 Usage:
@@ -20,6 +22,27 @@ import sys
 from pathlib import Path
 
 ALLOWED_EXTRA = {"chess", "grokchess"}
+
+# Stdlib modules that are escape hatches around the "no borrowed brains" rule
+# (RULES.md §4): each one lets an engine run external programs, reach the
+# network, or load code this checker can't see. This is a tripwire, not a
+# fortress — `os.system(...)` and friends still exist — but it catches the
+# obvious routes; PR review is the real enforcement.
+DENYLIST = {
+    "subprocess": "can launch an external engine (RULES.md §4)",
+    "multiprocessing": "can launch external processes (RULES.md §4)",
+    "os": "os.system/os.popen can launch external engines; engines don't need os",
+    "socket": "network access (RULES.md §4)",
+    "ssl": "network access (RULES.md §4)",
+    "http": "network access (RULES.md §4)",
+    "urllib": "network access (RULES.md §4)",
+    "ftplib": "network access (RULES.md §4)",
+    "xmlrpc": "network access (RULES.md §4)",
+    "asyncio": "asyncio.open_connection is network access (RULES.md §4)",
+    "ctypes": "can load compiled code this checker can't inspect",
+    "importlib": "dynamic imports dodge this checker",
+    "runpy": "dynamic execution dodges this checker",
+}
 
 
 def _stdlib_names() -> set[str]:
@@ -77,7 +100,14 @@ def main(argv=None) -> int:
             violations += 1
             continue
         for module in sorted(_top_level_imports(tree)):
-            if module not in allowed:
+            if module in DENYLIST:
+                print(
+                    f"check-imports: error: {f}: imports '{module}' — "
+                    f"{DENYLIST[module]}",
+                    file=sys.stderr,
+                )
+                violations += 1
+            elif module not in allowed:
                 print(
                     f"check-imports: error: {f}: imports '{module}' (not allowed; "
                     f"stdlib + chess only)",
