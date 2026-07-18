@@ -26,6 +26,7 @@ from ..discovery import load_engines
 
 TIME_LIMIT = float(os.environ.get("GROKCHESS_TIME_LIMIT", DEFAULT_TIME_LIMIT))
 ENGINES_DIR = os.environ.get("GROKCHESS_ENGINES_DIR", "engines")
+MAX_GAMES = 50  # in-memory game cap; oldest games are evicted past this
 
 app = FastAPI(title="grokchess")
 
@@ -169,6 +170,10 @@ def new_game(req: NewGame):
         raise HTTPException(status_code=404, detail=f"unknown engine: {req.engine}")
     if req.human_color not in ("white", "black"):
         raise HTTPException(status_code=400, detail="human_color must be 'white' or 'black'")
+    # Bound the store: dicts iterate in insertion order, so the first key is
+    # the oldest game. Without this, every "New game" click leaks memory.
+    while len(_GAMES) >= MAX_GAMES:
+        _GAMES.pop(next(iter(_GAMES)))
     game_id = uuid.uuid4().hex[:12]
     game = {
         "board": chess.Board(),
