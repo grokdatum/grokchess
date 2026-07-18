@@ -6,178 +6,242 @@
 <title>grokchess</title>
 <style>
   :root {
-    --light: #ebecd0;
-    --dark: #6f9b57;
-    --sel: #f6f669;
-    --target: rgba(20, 85, 30, 0.45);
-    --last: rgba(246, 246, 105, 0.5);
-    --check: #e56b6f;
+    --bg: #262421;
+    --panel: #3a3835;
+    --text: #e8e6e3;
+    --muted: #9a9894;
+    --accent: #6f9b57;
+    /* board (lichess "brown") */
+    --light: #f0d9b5;
+    --dark: #b58863;
+    --hl-last: rgba(155, 199, 0, 0.41);   /* last move */
+    --hl-sel: rgba(255, 214, 0, 0.45);    /* selected square */
+    --dot: rgba(0, 0, 0, 0.16);           /* legal move on empty square */
+    --hover: rgba(255, 255, 255, 0.35);   /* square under a dragged piece */
   }
   * { box-sizing: border-box; }
   body {
     font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-    margin: 0; padding: 1.5rem;
-    background: #262421; color: #e8e6e3;
+    margin: 0; padding: 1.5rem 1rem; background: var(--bg); color: var(--text);
     display: flex; flex-direction: column; align-items: center; gap: 1rem;
   }
   h1 { margin: 0; font-size: 1.4rem; letter-spacing: 0.02em; }
   .controls { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center; justify-content: center; }
-  select, button { font-size: 1rem; padding: 0.4rem 0.6rem; border-radius: 6px; border: 1px solid #555; background: #3a3835; color: #e8e6e3; }
-  button { cursor: pointer; background: #6f9b57; border-color: #6f9b57; color: #fff; font-weight: 600; }
-  button:hover { filter: brightness(1.08); }
-  label { display: inline-flex; align-items: center; gap: 0.3rem; }
-  #status { min-height: 1.4rem; font-size: 1.05rem; text-align: center; }
+  select, button {
+    font-size: 0.95rem; padding: 0.45rem 0.7rem; border-radius: 8px;
+    border: 1px solid #555; background: var(--panel); color: var(--text); cursor: pointer;
+  }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button:hover { filter: brightness(1.1); }
+  label { display: inline-flex; align-items: center; gap: 0.35rem; color: var(--muted); font-size: 0.9rem; }
+  #status { min-height: 1.5rem; font-size: 1.05rem; text-align: center; font-weight: 500; }
+
   #board {
-    display: grid; grid-template-columns: repeat(8, 1fr);
-    width: min(88vw, 560px); aspect-ratio: 1 / 1;
-    border: 3px solid #3a3835; border-radius: 4px; overflow: hidden;
-    user-select: none;
+    position: relative; width: min(92vw, 560px); aspect-ratio: 1 / 1;
+    border-radius: 6px; overflow: hidden; touch-action: none;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
   }
-  .sq {
-    position: relative; display: flex; align-items: center; justify-content: center;
-    font-size: min(11vw, 3.4rem); line-height: 1; cursor: pointer;
-  }
+  #squares, #pieces, #promo { position: absolute; inset: 0; }
+  #squares, #pieces { pointer-events: none; }
+
+  #squares { display: grid; grid-template-columns: repeat(8, 1fr); grid-template-rows: repeat(8, 1fr); }
+  .sq { position: relative; }
   .sq.light { background: var(--light); }
   .sq.dark { background: var(--dark); }
-  .sq .piece { position: relative; z-index: 2; }
-  .sq.white-piece .piece { color: #fff; text-shadow: 0 0 2px #000, 0 1px 2px #0008; }
-  .sq.black-piece .piece { color: #202020; text-shadow: 0 0 1px #fff6; }
-  .sq.sel::after { content: ""; position: absolute; inset: 0; background: var(--sel); opacity: 0.55; z-index: 1; }
-  .sq.last::after { content: ""; position: absolute; inset: 0; background: var(--last); z-index: 0; }
-  .sq.target::before {
-    content: ""; position: absolute; width: 32%; height: 32%; border-radius: 50%;
-    background: var(--target); z-index: 1;
+  .sq.last::after   { content: ""; position: absolute; inset: 0; background: var(--hl-last); }
+  .sq.sel::after    { content: ""; position: absolute; inset: 0; background: var(--hl-sel); }
+  .sq.hover { box-shadow: inset 0 0 0 4px var(--hover); }
+  .sq.check::before {
+    content: ""; position: absolute; inset: 0;
+    background: radial-gradient(circle at center,
+      rgba(255, 0, 0, 0.85) 0%, rgba(200, 0, 0, 0.55) 35%, rgba(150, 0, 0, 0) 72%);
   }
-  .sq.target.occupied::before {
-    width: 100%; height: 100%; border-radius: 0; background: none;
-    box-shadow: inset 0 0 0 6px var(--target);
+  /* legal-move markers */
+  .sq.move::before {
+    content: ""; position: absolute; left: 50%; top: 50%; width: 30%; height: 30%;
+    transform: translate(-50%, -50%); border-radius: 50%; background: var(--dot);
   }
-  .sq.incheck { background: var(--check) !important; }
-  .coords { font-size: 0.8rem; color: #9a9894; }
-  footer { font-size: 0.8rem; color: #9a9894; max-width: 560px; text-align: center; }
+  .sq.capture::before {
+    content: ""; position: absolute; inset: 8%; border-radius: 50%;
+    box-shadow: inset 0 0 0 7px var(--dot);
+  }
+  .coord { position: absolute; font-size: clamp(8px, 1.7vw, 11px); font-weight: 700; opacity: 0.8; }
+  .coord.file { right: 3px; bottom: 1px; }
+  .coord.rank { left: 2px; top: 1px; }
+  .sq.light .coord { color: var(--dark); }
+  .sq.dark .coord { color: var(--light); }
+
+  .piece {
+    position: absolute; top: 0; left: 0; width: 12.5%; height: 12.5%;
+    background-size: 92%; background-repeat: no-repeat; background-position: center;
+    filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.3)); will-change: transform;
+  }
+  .piece.dragging { z-index: 20; transform-origin: center; filter: drop-shadow(0 6px 8px rgba(0, 0, 0, 0.5)); }
+
+  #promo { display: none; background: rgba(20, 18, 16, 0.72); z-index: 30; pointer-events: auto; }
+  #promo.open { display: flex; align-items: center; justify-content: center; }
+  .promo-panel { background: var(--panel); border-radius: 12px; padding: 0.8rem; display: flex; gap: 0.4rem; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
+  .promo-choice { width: clamp(48px, 12vw, 64px); height: clamp(48px, 12vw, 64px); border-radius: 8px; background-size: 88%; background-repeat: no-repeat; background-position: center; cursor: pointer; }
+  .promo-choice:hover { background-color: var(--accent); }
+
+  #turnline { font-size: 0.85rem; color: var(--muted); min-height: 1.1rem; }
+  footer { font-size: 0.8rem; color: var(--muted); max-width: 560px; text-align: center; line-height: 1.4; }
+  footer a { color: var(--accent); }
 </style>
 </head>
 <body>
   <h1>♞ grokchess</h1>
   <div class="controls">
-    <label>Engine
-      <select id="engine"></select>
-    </label>
+    <label>Engine <select id="engine"></select></label>
     <label>You play
-      <select id="color">
-        <option value="white">White</option>
-        <option value="black">Black</option>
-      </select>
+      <select id="color"><option value="white">White</option><option value="black">Black</option></select>
     </label>
-    <button id="new">New game</button>
+    <button id="new" class="primary">New game</button>
+    <button id="flip">Flip</button>
+    <button id="resign">Resign</button>
   </div>
   <div id="status">Pick an engine and start a game.</div>
-  <div id="board"></div>
-  <div class="coords" id="turnline"></div>
-  <footer>Click one of your pieces, then a highlighted square. Pawn promotions auto-queen for now.</footer>
+  <div id="board">
+    <div id="squares"></div>
+    <div id="pieces"></div>
+    <div id="promo"></div>
+  </div>
+  <div id="turnline"></div>
+  <footer>Drag a piece or click it and then a highlighted square. The board is the referee — the server (python-chess) validates every move.</footer>
 
 <script>
-const FILES = ["a","b","c","d","e","f","g","h"];
-const GLYPH = {
-  K:"♔", Q:"♕", R:"♖", B:"♗", N:"♘", P:"♙",
-  k:"♚", q:"♛", r:"♜", b:"♝", n:"♞", p:"♟"
-};
+const FILES = ["a", "b", "c", "d", "e", "f", "g", "h"];
+const PIECE_URL = code => `/static/pieces/${code}.svg`;
 
-let state = null;      // last state from the server
-let selected = null;   // currently selected square (e.g. "e2")
+let state = null;            // last state from the server
+let selected = null;         // currently selected square, e.g. "e2"
+let orientationOverride = null;  // null = follow the color you play; else "white"/"black"
+let drag = null;             // active drag context
+let pieceAt = {};            // square -> piece DOM element (current render)
 
 const boardEl = document.getElementById("board");
+const squaresEl = document.getElementById("squares");
+const piecesEl = document.getElementById("pieces");
+const promoEl = document.getElementById("promo");
 const statusEl = document.getElementById("status");
 const turnEl = document.getElementById("turnline");
 
+// ---- geometry ---------------------------------------------------------------
+function orient() { return orientationOverride || (state ? state.human_color : "white"); }
+
+function squareToDisplay(sq) {
+  const f = FILES.indexOf(sq[0]), r = parseInt(sq[1], 10);
+  return orient() === "white" ? { col: f, row: 8 - r } : { col: 7 - f, row: r - 1 };
+}
+function displayToSquare(col, row) {
+  let f, r;
+  if (orient() === "white") { f = col; r = 8 - row; } else { f = 7 - col; r = row + 1; }
+  if (f < 0 || f > 7 || r < 1 || r > 8) return null;
+  return FILES[f] + r;
+}
+function pointToSquare(clientX, clientY) {
+  const rect = boardEl.getBoundingClientRect();
+  const size = rect.width / 8;
+  const col = Math.floor((clientX - rect.left) / size);
+  const row = Math.floor((clientY - rect.top) / size);
+  if (col < 0 || col > 7 || row < 0 || row > 7) return null;
+  return displayToSquare(col, row);
+}
+
+// ---- FEN --------------------------------------------------------------------
 function parseFen(fen) {
-  const rows = fen.split(" ")[0].split("/");   // rank 8 first
+  const rows = fen.split(" ")[0].split("/");
   const pieces = {};
   for (let r = 0; r < 8; r++) {
     let file = 0;
     for (const ch of rows[r]) {
-      if (/\d/.test(ch)) { file += parseInt(ch, 10); }
+      if (/\d/.test(ch)) file += parseInt(ch, 10);
       else { pieces[FILES[file] + (8 - r)] = ch; file++; }
     }
   }
   return pieces;
 }
-
-function orderedSquares(orientation) {
-  const files = FILES.slice();
-  const ranks = [8, 7, 6, 5, 4, 3, 2, 1];
-  if (orientation === "black") { files.reverse(); ranks.reverse(); }
-  const out = [];
-  for (const r of ranks) for (const f of files) out.push(f + r);
-  return out;
+function codeFor(ch) { return (ch === ch.toUpperCase() ? "w" : "b") + ch.toUpperCase(); }
+function findKing(pieces, turn) {
+  const k = turn === "white" ? "K" : "k";
+  for (const sq in pieces) if (pieces[sq] === k) return sq;
+  return null;
 }
-
 function targetsFrom(sq) {
   if (!state) return [];
-  return state.legal_moves.filter(m => m.from === sq).map(m => m.to);
+  return [...new Set(state.legal_moves.filter(m => m.from === sq).map(m => m.to))];
 }
+function myTurn() { return state && state.status === "playing" && state.turn === state.human_color; }
 
-function myTurn() {
-  return state && state.status === "playing" && state.turn === state.human_color;
-}
-
-function render() {
-  const pieces = parseFen(state.fen);
-  const orientation = state.human_color;
-  const squares = orderedSquares(orientation);
-  const targets = selected ? targetsFrom(selected) : [];
-  const last = state.last_move ? [state.last_move.slice(0,2), state.last_move.slice(2,4)] : [];
-  const kingInCheck = state.check ? findKing(pieces, state.turn) : null;
-
-  boardEl.innerHTML = "";
-  for (const sq of squares) {
-    const file = FILES.indexOf(sq[0]);
-    const rank = parseInt(sq[1], 10);
-    const dark = (file + rank) % 2 === 1;
-    const cell = document.createElement("div");
-    cell.className = "sq " + (dark ? "dark" : "light");
-    cell.dataset.square = sq;
-    const piece = pieces[sq];
-    if (piece) {
-      const isWhite = piece === piece.toUpperCase();
-      cell.classList.add(isWhite ? "white-piece" : "black-piece");
-      const span = document.createElement("span");
-      span.className = "piece";
-      span.textContent = GLYPH[piece];
-      cell.appendChild(span);
-    }
-    if (sq === selected) cell.classList.add("sel");
-    if (targets.includes(sq)) {
-      cell.classList.add("target");
-      if (piece) cell.classList.add("occupied");
-    }
-    if (last.includes(sq)) cell.classList.add("last");
-    if (sq === kingInCheck) cell.classList.add("incheck");
-    cell.addEventListener("click", () => onSquare(sq));
-    boardEl.appendChild(cell);
-  }
+// ---- rendering --------------------------------------------------------------
+function render(animateMove = null) {
+  buildSquares();
+  buildPieces(animateMove);
   renderStatus();
 }
 
-function findKing(pieces, turn) {
-  const target = turn === "white" ? "K" : "k";
-  for (const sq in pieces) if (pieces[sq] === target) return sq;
-  return null;
+function buildSquares() {
+  const pieces = state ? parseFen(state.fen) : {};
+  const targets = selected ? targetsFrom(selected) : [];
+  const last = state && state.last_move ? [state.last_move.slice(0, 2), state.last_move.slice(2, 4)] : [];
+  const kingInCheck = state && state.check ? findKing(pieces, state.turn) : null;
+
+  squaresEl.innerHTML = "";
+  for (let row = 0; row < 8; row++) {
+    for (let col = 0; col < 8; col++) {
+      const sq = displayToSquare(col, row);
+      const dark = (FILES.indexOf(sq[0]) + parseInt(sq[1], 10)) % 2 === 1;
+      const cell = document.createElement("div");
+      cell.className = "sq " + (dark ? "dark" : "light");
+      cell.dataset.square = sq;
+      if (last.includes(sq)) cell.classList.add("last");
+      if (sq === selected) cell.classList.add("sel");
+      if (sq === kingInCheck) cell.classList.add("check");
+      if (targets.includes(sq)) cell.classList.add(pieces[sq] ? "capture" : "move");
+      if (row === 7) cell.insertAdjacentHTML("beforeend", `<span class="coord file">${sq[0]}</span>`);
+      if (col === 0) cell.insertAdjacentHTML("beforeend", `<span class="coord rank">${sq[1]}</span>`);
+      squaresEl.appendChild(cell);
+    }
+  }
+}
+
+function placePiece(el, sq, animate) {
+  const { col, row } = squareToDisplay(sq);
+  el.style.transition = animate ? "transform 0.2s ease" : "none";
+  el.style.transform = `translate(${col * 100}%, ${row * 100}%)`;
+}
+
+function buildPieces(animateMove) {
+  piecesEl.innerHTML = "";
+  pieceAt = {};
+  if (!state) return;
+  const pieces = parseFen(state.fen);
+  for (const sq in pieces) {
+    const el = document.createElement("div");
+    el.className = "piece";
+    el.style.backgroundImage = `url('${PIECE_URL(codeFor(pieces[sq]))}')`;
+    piecesEl.appendChild(el);
+    pieceAt[sq] = el;
+    if (animateMove && sq === animateMove.to) {
+      // start the moved piece on its origin square, then slide it home
+      placePiece(el, animateMove.from, false);
+      requestAnimationFrame(() => requestAnimationFrame(() => placePiece(el, animateMove.to, true)));
+    } else {
+      placePiece(el, sq, false);
+    }
+  }
 }
 
 function renderStatus() {
+  if (!state) return;
   const engine = state.engine;
   if (state.status === "playing") {
-    const who = state.turn === state.human_color ? "Your move" : engine + " is thinking…";
-    statusEl.textContent = who;
-    turnEl.textContent = `You: ${state.human_color} • Engine: ${engine} • move ${state.move_number}`;
+    statusEl.textContent = state.turn === state.human_color ? "Your move" : `${engine} is thinking…`;
+    turnEl.textContent = `You: ${state.human_color} · Engine: ${engine} · move ${state.move_number}`;
   } else {
-    const outcome = {
-      white_wins: "White wins", black_wins: "Black wins", draw: "Draw"
-    }[state.status] || state.status;
-    const youWon =
-      (state.status === "white_wins" && state.human_color === "white") ||
-      (state.status === "black_wins" && state.human_color === "black");
+    const outcome = { white_wins: "White wins", black_wins: "Black wins", draw: "Draw" }[state.status] || state.status;
+    const youWon = (state.status === "white_wins" && state.human_color === "white") ||
+                   (state.status === "black_wins" && state.human_color === "black");
     const tag = state.status === "draw" ? "" : (youWon ? " — you win! 🎉" : " — engine wins");
     let reason = state.reason ? ` (${state.reason.replace(/_/g, " ")})` : "";
     if (state.detail) reason += ` — ${state.detail}`;
@@ -186,62 +250,150 @@ function renderStatus() {
   }
 }
 
-function onSquare(sq) {
-  if (!state) return;
-  if (!myTurn()) return;
-  const pieces = parseFen(state.fen);
-  const piece = pieces[sq];
-  const isMine = piece &&
-    ((state.human_color === "white") === (piece === piece.toUpperCase()));
-
-  if (selected === null) {
-    if (isMine && targetsFrom(sq).length) { selected = sq; render(); }
-    return;
+function clearHover() { squaresEl.querySelectorAll(".hover").forEach(c => c.classList.remove("hover")); }
+function setHover(sq) {
+  clearHover();
+  if (sq && selected && targetsFrom(selected).includes(sq)) {
+    const cell = squaresEl.querySelector(`[data-square="${sq}"]`);
+    if (cell) cell.classList.add("hover");
   }
-  if (targetsFrom(selected).includes(sq)) {
-    sendMove(selected, sq);
-    selected = null;
-    return;
-  }
-  // reselect another of your pieces, else clear
-  selected = (isMine && targetsFrom(sq).length) ? sq : null;
-  render();
 }
 
+// ---- interaction (pointer = mouse + touch) ----------------------------------
+boardEl.addEventListener("pointerdown", onDown);
+boardEl.addEventListener("pointermove", onMove);
+boardEl.addEventListener("pointerup", onUp);
+
+function onDown(e) {
+  if (!myTurn() || promoEl.classList.contains("open")) return;
+  const sq = pointToSquare(e.clientX, e.clientY);
+  if (!sq) return;
+
+  // click-to-move: something selected and this is a legal destination
+  if (selected && targetsFrom(selected).includes(sq)) { attemptMove(selected, sq); return; }
+
+  const pieces = parseFen(state.fen);
+  const ch = pieces[sq];
+  const mine = ch && ((state.human_color === "white") === (ch === ch.toUpperCase()));
+  if (mine && targetsFrom(sq).length) {
+    selected = sq;
+    buildSquares();
+    drag = { from: sq, el: pieceAt[sq], moved: false, x: e.clientX, y: e.clientY };
+    if (drag.el) drag.el.classList.add("dragging");
+    boardEl.setPointerCapture(e.pointerId);
+  } else {
+    selected = null;
+    buildSquares();
+  }
+}
+
+function onMove(e) {
+  if (!drag) return;
+  if (!drag.moved && (Math.abs(e.clientX - drag.x) > 4 || Math.abs(e.clientY - drag.y) > 4)) drag.moved = true;
+  if (!drag.moved || !drag.el) return;
+  const rect = boardEl.getBoundingClientRect();
+  const size = rect.width / 8;
+  drag.el.style.transition = "none";
+  drag.el.style.transform =
+    `translate(${e.clientX - rect.left - size / 2}px, ${e.clientY - rect.top - size / 2}px)`;
+  setHover(pointToSquare(e.clientX, e.clientY));
+}
+
+function onUp(e) {
+  if (!drag) return;
+  const d = drag; drag = null;
+  clearHover();
+  if (d.el) d.el.classList.remove("dragging");
+  if (!d.moved) return;  // it was a click, not a drag — keep the selection + dots
+
+  const target = pointToSquare(e.clientX, e.clientY);
+  if (target && targetsFrom(d.from).includes(target)) {
+    attemptMove(d.from, target);
+  } else if (d.el) {
+    placePiece(d.el, d.from, true);  // snap back
+    selected = null;
+    setTimeout(buildSquares, 200);
+  }
+}
+
+// ---- moves + promotion ------------------------------------------------------
+function attemptMove(from, to) {
+  selected = null;
+  const promos = state.legal_moves.filter(m => m.from === from && m.to === to && m.promotion);
+  if (promos.length) { openPromotion(from, to); return; }
+  doMove(from, to, null);
+}
+
+function openPromotion(from, to) {
+  const color = state.human_color === "white" ? "w" : "b";
+  promoEl.innerHTML = "";
+  const panel = document.createElement("div");
+  panel.className = "promo-panel";
+  for (const p of ["q", "r", "b", "n"]) {
+    const choice = document.createElement("div");
+    choice.className = "promo-choice";
+    choice.style.backgroundImage = `url('${PIECE_URL(color + p.toUpperCase())}')`;
+    choice.title = { q: "Queen", r: "Rook", b: "Bishop", n: "Knight" }[p];
+    choice.addEventListener("click", () => { closePromotion(); doMove(from, to, p); });
+    panel.appendChild(choice);
+  }
+  promoEl.appendChild(panel);
+  promoEl.classList.add("open");
+  promoEl.onclick = ev => { if (ev.target === promoEl) { closePromotion(); render(); } };
+}
+function closePromotion() { promoEl.classList.remove("open"); promoEl.innerHTML = ""; }
+
+async function doMove(from, to, promotion) {
+  const el = pieceAt[from];
+  if (el) placePiece(el, to, true);  // optimistic slide of the human's own move
+  try {
+    const next = await api("/api/move", { game_id: state.game_id, from, to, promotion });
+    state = next;
+    // animate the engine's reply, if it made one distinct from our move
+    let animate = null;
+    if (state.last_move) {
+      const f = state.last_move.slice(0, 2), t = state.last_move.slice(2, 4);
+      if (!(f === from && t === to)) animate = { from: f, to: t };
+    }
+    render(animate);
+  } catch (err) {
+    statusEl.textContent = "⚠ " + err.message;
+    render();
+  }
+}
+
+// ---- controls ---------------------------------------------------------------
 async function api(path, body) {
   const res = await fetch(path, {
     method: body ? "POST" : "GET",
     headers: body ? { "Content-Type": "application/json" } : undefined,
     body: body ? JSON.stringify(body) : undefined,
   });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.detail || res.statusText);
-  }
+  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || res.statusText); }
   return res.json();
-}
-
-async function sendMove(from, to) {
-  try {
-    // Auto-queen: if this from->to is a promotion, ask for a queen.
-    const promo = state.legal_moves.some(m => m.from === from && m.to === to && m.promotion) ? "q" : null;
-    state = await api("/api/move", { game_id: state.game_id, from, to, promotion: promo });
-    render();
-  } catch (e) {
-    statusEl.textContent = "⚠ " + e.message;
-  }
 }
 
 async function newGame() {
   try {
-    const engine = document.getElementById("engine").value;
-    const human_color = document.getElementById("color").value;
-    selected = null;
-    state = await api("/api/new", { engine, human_color });
-    render();
-  } catch (e) {
-    statusEl.textContent = "⚠ " + e.message;
-  }
+    selected = null; orientationOverride = null; closePromotion();
+    state = await api("/api/new", {
+      engine: document.getElementById("engine").value,
+      human_color: document.getElementById("color").value,
+    });
+    // if the engine (as White) already moved, animate that opening move
+    let animate = null;
+    if (state.last_move) animate = { from: state.last_move.slice(0, 2), to: state.last_move.slice(2, 4) };
+    render(animate);
+  } catch (err) { statusEl.textContent = "⚠ " + err.message; }
+}
+
+function flip() { orientationOverride = orient() === "white" ? "black" : "white"; render(); }
+
+function resign() {
+  if (!state || state.status !== "playing") return;
+  state.status = state.human_color === "white" ? "black_wins" : "white_wins";
+  state.reason = "resignation"; state.detail = "";
+  selected = null; render();
 }
 
 async function loadEngines() {
@@ -258,6 +410,9 @@ async function loadEngines() {
 }
 
 document.getElementById("new").addEventListener("click", newGame);
+document.getElementById("flip").addEventListener("click", flip);
+document.getElementById("resign").addEventListener("click", resign);
+buildSquares();  // draw an empty board immediately
 loadEngines();
 </script>
 </body>
