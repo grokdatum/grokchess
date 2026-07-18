@@ -41,6 +41,7 @@ def load_engines(engines_dir: str | Path = "engines") -> list[type[Engine]]:
         raise FileNotFoundError(f"grokchess: engines dir not found: {root}")
 
     classes: list[type[Engine]] = []
+    seen: dict[str, Path] = {}  # engine name -> file it came from
     for path in sorted(root.rglob("*.py")):
         rel = path.relative_to(root)
         if _is_skipped(rel):
@@ -54,6 +55,18 @@ def load_engines(engines_dir: str | Path = "engines") -> list[type[Engine]]:
                 and obj is not Engine
                 and obj.__module__ == module.__name__
             ):
+                name = getattr(obj, "name", "")
+                if name in seen:
+                    # Names key the leaderboard and the web UI's engine picker,
+                    # so a collision would silently shadow someone's engine.
+                    # (Most common cause: copying _template and forgetting to
+                    # change `name = "my-engine"`.)
+                    raise ValueError(
+                        f"grokchess: duplicate engine name {name!r} in "
+                        f"{seen[name]} and {path} — give each engine a unique "
+                        f"`name` (see engines/_template/engine.py)"
+                    )
+                seen[name] = path
                 classes.append(obj)
 
     classes.sort(key=lambda c: (getattr(c, "author", ""), getattr(c, "name", "")))
