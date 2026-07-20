@@ -65,11 +65,24 @@ the tools, this file. Two asks when you touch shared code:
   change them, update every engine and the docs in the same PR.
 - **Say so in the PR body.** There's no review gate, so the PR description is
   how the rest of us find out that something shared moved. See
-  [`CLAUDE.md`](CLAUDE.md) "Conventions for changes".
+  [`AGENTS.md`](AGENTS.md) "Conventions for changes".
 
 Since nothing blocks a merge but CI, the honour system is doing real work here.
 That's deliberate — this is a learning repo among friends, and waiting on
 reviews is how side projects die.
+
+## Using an AI agent
+
+Several of us work on this with coding agents (Claude Code, Codex, …). The house
+rules for them live in **[`AGENTS.md`](AGENTS.md)** — one vendor-neutral file
+that every agent reads. `CLAUDE.md` is just a pointer to it.
+
+If your agent writes guidance about this repo, it goes in `AGENTS.md`, not a new
+per-tool file. Two copies drift, and then which rules apply depends on which
+tool you happened to open.
+
+Agents are fine here — but auto-merge means nothing but CI stands between an
+agent's output and `main`. Read the diff before you run `submit.sh`.
 
 ## Stuck?
 

@@ -111,7 +111,9 @@ tournament so a broken engine can't merge.
 | `grokchess/discovery.py` | finds engines under `engines/` |
 | `engines/<name>/` | one folder per person |
 | `tools/check_imports.py` | the "no borrowed brains" import gate |
+| `tools/submit.sh` | branch, push, open a self-merging PR |
 | `tests/` | referee + tournament tests |
+| `AGENTS.md` | house rules for AI coding agents (all vendors) |
 
 ## Roadmap ideas
 
