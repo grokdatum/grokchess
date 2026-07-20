@@ -43,6 +43,10 @@ See [`RULES.md`](RULES.md). The load-bearing constraints:
   make one contributor's engine import another's.
 - **Tests + CI stay green.** `pytest -q`, `python tools/check_imports.py engines`,
   and a smoke tournament all run on every PR (`.github/workflows/ci.yml`).
+  **CI is the only gate** — contributors have write access and PRs auto-merge on
+  green with no human review (`tools/submit.sh` is the one-command flow). So a
+  passing test suite is the entire safety net: when you change shared code, add
+  the test that would have caught you.
 - **Explain chess/programming jargon** the first time it appears in docs or
   comments — this is a learning repo (e.g. FEN = one-line board snapshot; minimax
   = assume the opponent replies best).

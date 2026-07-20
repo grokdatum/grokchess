@@ -61,8 +61,9 @@ On Linux/macOS with the local virtual environment:
 
 ## Write your own engine
 
-New to pull requests? [`CONTRIBUTING.md`](CONTRIBUTING.md) walks through the
-whole flow step by step.
+Contributors have write access — no fork, no waiting on review. Write your
+engine, then run `tools/submit.sh`; it opens a pull request that merges itself
+once CI is green. [`CONTRIBUTING.md`](CONTRIBUTING.md) has the details.
 
 ```bash
 cp -r engines/_template engines/<your-name>

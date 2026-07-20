@@ -50,8 +50,9 @@ The point is to write *your own* engine, so at least to start:
   stdlib escape hatches (`subprocess`, `socket`, `ctypes`, `importlib`, `os`, …)
   that would let an engine shell out to Stockfish or reach the network.
 - **Honesty note:** the checker is a tripwire, not a fortress — a determined
-  cheater can get around static analysis. PR review by the group is the real
-  enforcement; the checker just catches accidents and the obvious routes.
+  cheater can get around static analysis. PRs merge themselves once CI is green,
+  so nobody is reviewing your diff for cheats; the checker catches accidents and
+  the obvious routes, and everything past that is the honour system.
 
 ## 6. Fair play
 

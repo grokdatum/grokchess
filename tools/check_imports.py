@@ -27,7 +27,8 @@ ALLOWED_EXTRA = {"chess", "grokchess"}
 # (RULES.md §4): each one lets an engine run external programs, reach the
 # network, or load code this checker can't see. This is a tripwire, not a
 # fortress — `os.system(...)` and friends still exist — but it catches the
-# obvious routes; PR review is the real enforcement.
+# obvious routes. PRs auto-merge on green CI with no human review, so past this
+# gate it is the honour system (RULES.md §5).
 DENYLIST = {
     "subprocess": "can launch an external engine (RULES.md §4)",
     "multiprocessing": "can launch external processes (RULES.md §4)",

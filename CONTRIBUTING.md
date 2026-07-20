@@ -1,8 +1,8 @@
 # Contributing your engine
 
-New to the GitHub pull-request flow? This is the whole dance. (A **pull
-request**, or PR, is how you propose changes: you push your work to a *branch*
-— a parallel line of history — and ask for it to be merged into `main`.)
+You have **write access to this repo** — no fork needed. (A *fork* is your own
+copy of a repo; you'd normally need one to contribute to someone else's
+project. Here you don't: you push straight to the real thing.)
 
 ## One-time setup
 
@@ -16,38 +16,63 @@ pip install -e ".[dev]"
 ## Every time you add or change an engine
 
 ```bash
-# 1. Start a branch named after what you're doing
-git checkout main && git pull
-git checkout -b add-<your-name>-engine
-
-# 2. Copy the template and make it yours
+# 1. Copy the template and make it yours
 cp -r engines/_template engines/<your-name>
 $EDITOR engines/<your-name>/engine.py   # rename the class; set name/author/league
 
-# 3. Check your work locally (this is exactly what CI will run)
-python tools/check_imports.py engines   # imports: stdlib + chess only
-pytest -q                               # referee tests still pass
-python -m grokchess.tournament -v       # your engine actually plays
+# 2. Watch it play
+python -m grokchess.tournament -v
 
-# 4. Push your branch and open the PR
-git add engines/<your-name>
-git commit -m "feat: add <engine-name> (league L0)"
-git push -u origin add-<your-name>-engine
+# 3. Ship it
+tools/submit.sh -m "feat: add <engine-name> (league L0)"
 ```
 
-Then open the link git prints (or go to the repo page — GitHub shows a
-"Compare & pull request" button). CI must be green before it can merge —
-`main` is protected, so nobody (including you) can land a broken engine.
+That's it. `submit.sh` makes a branch, commits, pushes, opens a pull request
+(a **PR** — a proposal to merge your work into `main`), and turns on
+**auto-merge**. The PR merges itself the moment CI goes green. Nobody has to
+review it or click anything, including Eric.
+
+If you'd rather drive git yourself, the long way still works — branch, commit,
+push, then `gh pr create --fill && gh pr merge --auto --squash`. `submit.sh` is
+just those steps in one command; run it with `--dry-run` to see what it would do
+without doing it.
+
+## What CI checks
+
+The only gate is [`.github/workflows/ci.yml`](.github/workflows/ci.yml), run on
+every PR against Python 3.10 and 3.12:
+
+```bash
+python tools/check_imports.py engines   # imports: stdlib + chess only
+pytest -q                               # referee tests still pass
+python -m grokchess.tournament          # every engine loads and plays
+```
+
+`submit.sh` runs the first two locally before pushing, so you usually find out
+in seconds rather than minutes. A red PR simply doesn't merge — push fixes to
+the same branch and it merges itself once green.
 
 ## Ground rules
 
 Read [`RULES.md`](RULES.md) — short version: your own folder, stdlib + `chess`
 imports only, no borrowed brains, legal move within 1 second, declare a league.
 
-Touching the referee, web UI, or tools is welcome too — same flow, just keep
-the engine contract stable (see [`CLAUDE.md`](CLAUDE.md) "Conventions").
+**You can change anything**, not just your own engine — the referee, the web UI,
+the tools, this file. Two asks when you touch shared code:
+
+- **Keep the engine contract stable.** `Engine.choose_move(board) -> chess.Move`
+  and the arena's forfeit behavior are what everyone else builds on. If you
+  change them, update every engine and the docs in the same PR.
+- **Say so in the PR body.** There's no review gate, so the PR description is
+  how the rest of us find out that something shared moved. See
+  [`CLAUDE.md`](CLAUDE.md) "Conventions for changes".
+
+Since nothing blocks a merge but CI, the honour system is doing real work here.
+That's deliberate — this is a learning repo among friends, and waiting on
+reviews is how side projects die.
 
 ## Stuck?
 
-Open an issue, or just push the branch and open a draft PR — broken is fine,
-that's what review is for. This is a learning repo; questions are the point.
+Open an issue, or push a **draft** PR — `gh pr create --draft` won't auto-merge,
+so it's a safe place to show broken code and ask what's wrong. That's exactly
+what it's for. Questions are the point.
