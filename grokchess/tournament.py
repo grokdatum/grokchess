@@ -185,11 +185,14 @@ def main(argv=None) -> int:
 
     _print_standings(table)
 
+    launcher = f'"{sys.executable}" -m grokchess.desktop'
+    if sys.platform.startswith("win"):
+        launcher = "& " + launcher
     print(
         "grokchess-tournament: done. "
         + (f"PGNs in {save_dir}/. " if save_dir else "")
-        + "Next: play the winner in your browser with "
-        "`python -m grokchess.web` (see README).",
+        + "Next: open the board with "
+        + f"`{launcher}` (see README).",
         file=sys.stderr,
     )
     return 0

@@ -12,7 +12,9 @@ Run it with:  python -m grokchess.web   (from the repo root)
 
 from __future__ import annotations
 
+import itertools
 import os
+import threading
 import uuid
 from pathlib import Path
 
@@ -22,12 +24,14 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from ..arena import DEFAULT_TIME_LIMIT, MoveTimeout, _natural_reason, call_with_time_limit
+from ..arena import DEFAULT_TIME_LIMIT, MoveTimeout, _natural_reason, call_with_time_limit, play_game
 from ..discovery import load_engines
+from ..tournament import Standing, _tally
 
 TIME_LIMIT = float(os.environ.get("GROKCHESS_TIME_LIMIT", DEFAULT_TIME_LIMIT))
 ENGINES_DIR = os.environ.get("GROKCHESS_ENGINES_DIR", "engines")
 MAX_GAMES = 50  # in-memory game cap; oldest games are evicted past this
+MAX_TOURNAMENTS = 10
 
 app = FastAPI(title="grokchess")
 
@@ -45,6 +49,9 @@ _INDEX_HTML = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
 _REGISTRY: dict[str, type] = {}
 # game_id -> game state
 _GAMES: dict[str, dict] = {}
+# tournament_id -> job state
+_TOURNAMENTS: dict[str, dict] = {}
+_TOURNAMENT_LOCK = threading.Lock()
 
 
 def _registry() -> dict[str, type]:
@@ -57,6 +64,12 @@ def _registry() -> dict[str, type]:
 class NewGame(BaseModel):
     engine: str
     human_color: str = "white"
+
+
+class TournamentReq(BaseModel):
+    rounds: int = Field(default=1, ge=1, le=5)
+    max_plies: int = Field(default=80, ge=4, le=400)
+    time_limit: float = Field(default=TIME_LIMIT, gt=0, le=5)
 
 
 class MoveReq(BaseModel):
@@ -105,6 +118,26 @@ def _resolve_move(board: chess.Board, frm: str, to: str, promotion: str | None):
     return candidates[0]
 
 
+def _push_recorded_move(game: dict, move: chess.Move, actor: str) -> None:
+    board = game["board"]
+    moving_piece = board.piece_at(move.from_square)
+    captured_piece = board.piece_at(move.to_square)
+    if board.is_en_passant(move):
+        offset = -8 if board.turn == chess.WHITE else 8
+        captured_piece = board.piece_at(move.to_square + offset)
+    event = {
+        "uci": move.uci(),
+        "from": chess.square_name(move.from_square),
+        "to": chess.square_name(move.to_square),
+        "piece": moving_piece.symbol() if moving_piece else "",
+        "captured": captured_piece.symbol() if captured_piece else None,
+        "actor": actor,
+    }
+    board.push(move)
+    game["last_move"] = move.uci()
+    game["move_events"].append(event)
+
+
 def _engine_reply(game: dict) -> None:
     """If it's the engine's turn, let it move (or forfeit on error/timeout)."""
     board = game["board"]
@@ -126,8 +159,7 @@ def _engine_reply(game: dict) -> None:
     if not isinstance(move, chess.Move) or move not in board.legal_moves:
         game["forfeit"] = (_human_wins_status(game), "illegal_move", str(move))
         return
-    board.push(move)
-    game["last_move"] = move.uci()
+    _push_recorded_move(game, move, "engine")
 
 
 def _state(game_id: str) -> dict:
@@ -151,6 +183,7 @@ def _state(game_id: str) -> dict:
         "engine": game["engine_name"],
         "legal_moves": legal,
         "last_move": game.get("last_move"),
+        "move_events": game.get("move_events", []),
         "check": board.is_check(),
         "status": status,
         "reason": reason,
@@ -190,6 +223,7 @@ def new_game(req: NewGame):
         "engine_name": req.engine,
         "human_color": chess.WHITE if req.human_color == "white" else chess.BLACK,
         "last_move": None,
+        "move_events": [],
     }
     _GAMES[game_id] = game
     _engine_reply(game)  # engine moves first if the human chose Black
@@ -210,8 +244,7 @@ def move(req: MoveReq):
     chosen = _resolve_move(board, req.from_sq, req.to_sq, req.promotion)
     if chosen is None:
         raise HTTPException(status_code=400, detail=f"illegal move: {req.from_sq}{req.to_sq}")
-    board.push(chosen)
-    game["last_move"] = chosen.uci()
+    _push_recorded_move(game, chosen, "human")
     _engine_reply(game)
     return _state(req.game_id)
 
@@ -221,3 +254,172 @@ def state(game_id: str):
     if game_id not in _GAMES:
         raise HTTPException(status_code=404, detail="unknown game_id")
     return _state(game_id)
+
+
+def _frame_event(board: chess.Board, move: chess.Move) -> dict:
+    moving_piece = board.piece_at(move.from_square)
+    captured_piece = board.piece_at(move.to_square)
+    if board.is_en_passant(move):
+        offset = -8 if board.turn == chess.WHITE else 8
+        captured_piece = board.piece_at(move.to_square + offset)
+    return {
+        "uci": move.uci(),
+        "from": chess.square_name(move.from_square),
+        "to": chess.square_name(move.to_square),
+        "piece": moving_piece.symbol() if moving_piece else "",
+        "captured": captured_piece.symbol() if captured_piece else None,
+        "actor": "white" if board.turn == chess.WHITE else "black",
+    }
+
+
+def _game_frames(result) -> list[dict]:
+    board = chess.Board()
+    frames = [{"fen": board.fen(), "event": None}]
+    for uci in result.moves:
+        move = chess.Move.from_uci(uci)
+        event = _frame_event(board, move)
+        board.push(move)
+        frames.append({"fen": board.fen(), "event": event})
+    return frames
+
+
+def _standings_payload(standings) -> list[dict]:
+    table = sorted(
+        standings.values(), key=lambda standing: (standing.points, standing.wins), reverse=True
+    )
+    return [
+        {
+            "rank": rank,
+            "name": standing.name,
+            "author": standing.author,
+            "league": standing.league,
+            "played": standing.played,
+            "wins": standing.wins,
+            "draws": standing.draws,
+            "losses": standing.losses,
+            "points": standing.points,
+        }
+        for rank, standing in enumerate(table, start=1)
+    ]
+
+
+def _result_payload(result) -> dict:
+    return {
+        "white": result.white,
+        "black": result.black,
+        "result": result.result,
+        "reason": result.reason,
+        "detail": result.detail,
+        "moves": result.moves,
+        "frames": _game_frames(result),
+    }
+
+
+def _new_standings(classes):
+    return {
+        cls: Standing(cls.name, getattr(cls, "author", ""), getattr(cls, "league", ""))
+        for cls in classes
+    }
+
+
+def _run_tournament_sync(classes, req: TournamentReq, on_game=None) -> dict:
+    standings = _new_standings(classes)
+    games = []
+    for _ in range(req.rounds):
+        for white_cls, black_cls in itertools.permutations(classes, 2):
+            result = play_game(
+                white_cls(),
+                black_cls(),
+                time_limit=req.time_limit,
+                max_plies=req.max_plies,
+            )
+            _tally(standings[white_cls], standings[black_cls], result)
+            payload = _result_payload(result)
+            games.append(payload)
+            if on_game is not None:
+                on_game(_standings_payload(standings), payload)
+    return {"standings": _standings_payload(standings), "games": games}
+
+
+def _job_snapshot(job: dict) -> dict:
+    return {
+        "id": job["id"],
+        "status": job["status"],
+        "completed_games": job["completed_games"],
+        "total_games": job["total_games"],
+        "standings": list(job["standings"]),
+        "games": list(job["games"]),
+        "error": job.get("error"),
+    }
+
+
+def _run_tournament_job(job_id: str, classes, req: TournamentReq) -> None:
+    def on_game(standings, game):
+        with _TOURNAMENT_LOCK:
+            job = _TOURNAMENTS[job_id]
+            job["completed_games"] += 1
+            job["standings"] = standings
+            job["games"].append(game)
+
+    try:
+        result = _run_tournament_sync(classes, req, on_game=on_game)
+        with _TOURNAMENT_LOCK:
+            job = _TOURNAMENTS[job_id]
+            job["status"] = "done"
+            job["standings"] = result["standings"]
+            job["games"] = result["games"]
+            job["completed_games"] = job["total_games"]
+    except Exception as exc:  # noqa: BLE001 - surfaced to the browser
+        with _TOURNAMENT_LOCK:
+            job = _TOURNAMENTS[job_id]
+            job["status"] = "error"
+            job["error"] = repr(exc)
+
+
+@app.post("/api/tournament/run")
+def run_tournament(req: TournamentReq):
+    classes = list(_registry().values())
+    if len(classes) < 2:
+        raise HTTPException(status_code=400, detail="need at least two engines")
+
+    return _run_tournament_sync(classes, req)
+
+
+@app.post("/api/tournament/start")
+def start_tournament(req: TournamentReq):
+    classes = list(_registry().values())
+    if len(classes) < 2:
+        raise HTTPException(status_code=400, detail="need at least two engines")
+
+    with _TOURNAMENT_LOCK:
+        while len(_TOURNAMENTS) >= MAX_TOURNAMENTS:
+            _TOURNAMENTS.pop(next(iter(_TOURNAMENTS)))
+        job_id = uuid.uuid4().hex[:12]
+        total_games = req.rounds * len(classes) * (len(classes) - 1)
+        _TOURNAMENTS[job_id] = {
+            "id": job_id,
+            "status": "running",
+            "completed_games": 0,
+            "total_games": total_games,
+            "standings": _standings_payload(_new_standings(classes)),
+            "games": [],
+            "error": None,
+        }
+
+    worker = threading.Thread(
+        target=_run_tournament_job,
+        args=(job_id, classes, req),
+        name="grokchess-tournament",
+        daemon=True,
+    )
+    worker.start()
+    with _TOURNAMENT_LOCK:
+        return _job_snapshot(_TOURNAMENTS[job_id])
+
+
+@app.get("/api/tournament/status/{job_id}")
+def tournament_status(job_id: str):
+    with _TOURNAMENT_LOCK:
+        if job_id not in _TOURNAMENTS:
+            raise HTTPException(status_code=404, detail="unknown tournament")
+        return _job_snapshot(_TOURNAMENTS[job_id])
