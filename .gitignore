@@ -11,6 +11,7 @@ venv/
 
 # Test / tooling caches
 .pytest_cache/
+.pytest_tmp/
 .ruff_cache/
 
 # Tournament output (recorded games)

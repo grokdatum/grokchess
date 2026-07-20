@@ -21,6 +21,10 @@ dev = ["pytest>=8.0", "fastapi>=0.110", "uvicorn>=0.29", "httpx>=0.27"]
 
 [project.scripts]
 grokchess-tournament = "grokchess.tournament:main"
+grokchess-desktop = "grokchess.desktop:main"
+
+[tool.pytest.ini_options]
+addopts = "--basetemp=.pytest_tmp -p no:cacheprovider"
 
 [tool.setuptools.packages.find]
 include = ["grokchess*"]

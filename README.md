@@ -42,6 +42,21 @@ python -m grokchess.tournament -v
 
 # 2. Play an engine in your browser
 python -m grokchess.web          # then open http://127.0.0.1:8000
+
+# Or open it in a standalone browser app window
+python -m grokchess.desktop
+```
+
+On Windows PowerShell with the local virtual environment:
+
+```powershell
+& ".\.venv\Scripts\python.exe" -m grokchess.desktop
+```
+
+On Linux/macOS with the local virtual environment:
+
+```bash
+./.venv/bin/python -m grokchess.desktop
 ```
 
 ## Write your own engine
