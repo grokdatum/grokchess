@@ -28,3 +28,6 @@ addopts = "--basetemp=.pytest_tmp -p no:cacheprovider"
 
 [tool.setuptools.packages.find]
 include = ["grokchess*"]
+
+[tool.setuptools.package-data]
+"grokchess.web" = ["index.html", "static/pieces/*.svg", "static/pieces/LICENSE"]

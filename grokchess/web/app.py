@@ -21,6 +21,7 @@ from pathlib import Path
 import chess
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from ..arena import DEFAULT_TIME_LIMIT, MoveTimeout, _natural_reason, call_with_time_limit, play_game
@@ -33,6 +34,14 @@ MAX_GAMES = 50  # in-memory game cap; oldest games are evicted past this
 MAX_TOURNAMENTS = 10
 
 app = FastAPI(title="grokchess")
+
+# Serve the vendored piece art (and any future assets) locally — no CDN, so the
+# board works fully offline.
+app.mount(
+    "/static",
+    StaticFiles(directory=str(Path(__file__).parent / "static")),
+    name="static",
+)
 
 _INDEX_HTML = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
 

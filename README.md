@@ -114,11 +114,19 @@ tournament so a broken engine can't merge.
 
 ## Roadmap ideas
 
-- Swap the plain board for [chessground](https://github.com/lichess-org/chessground) (lichess's board) for drag-and-drop polish.
 - A UCI bridge so engines can be written in any language and play against Stockfish as a benchmark.
 - Per-engine process isolation (each engine in its own sandboxed process) — pairs naturally with the UCI bridge; see the accepted-risk note in RULES.md §6.
 - GitHub Action that runs the tournament on every merge and publishes a leaderboard.
+- Web polish that's genuinely fun to add: a move list + PGN download, league-filtered standings, board themes.
+
+> We deliberately did **not** use [chessground](https://github.com/lichess-org/chessground) (lichess's board): it's GPL-3.0, which would force this MIT repo to GPL, and pulling it from a CDN would break the works-offline-after-clone property. The board is hand-built vanilla JS/SVG instead — a few hundred readable lines you're welcome to hack on.
+
+## Credits
+
+Chess piece art is the **Cburnett** set (the pieces Wikipedia and lichess use), by
+Colin M.L. Burnett, used under the BSD 3-Clause license — see
+[`grokchess/web/static/pieces/LICENSE`](grokchess/web/static/pieces/LICENSE).
 
 ## License
 
-MIT — see [`LICENSE`](LICENSE).
+MIT — see [`LICENSE`](LICENSE). (The bundled piece art is BSD-licensed; see Credits.)
